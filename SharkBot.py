@@ -20,7 +20,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Dictionary to store pinned messages per channel
 pinned_messages = {}
-reposting_tasks = {}  # New dictionary to track ongoing reposting tasks
+reposting_tasks = {}  # Tracks ongoing reposting tasks
 
 @bot.event
 async def on_ready():
@@ -58,10 +58,10 @@ async def stop(ctx):
         del pinned_messages[ctx.channel.id]  # Remove tracking for the channel
         await ctx.send("🛑 The bot will no longer repost the pinned message.", delete_after=3)
 
-        # Cancel the ongoing reposting task if there is one
+        # Cancel the ongoing reposting task if it exists
         if ctx.channel.id in reposting_tasks:
             reposting_tasks[ctx.channel.id].cancel()
-            del reposting_tasks[ctx.channel.id]
+            del reposting_tasks[ctx.channel.id]  # Cleanly remove task from tracking
     else:
         await ctx.send("❌ No pinned message is being tracked.", delete_after=3)
 
@@ -74,25 +74,41 @@ async def on_message(message):
     await bot.process_commands(message)  # Ensures commands work properly
 
     if message.channel.id in pinned_messages:
-        # If there's an existing task for this channel, cancel it
+        # Cancel any existing task before starting a new one
         if message.channel.id in reposting_tasks:
             reposting_tasks[message.channel.id].cancel()
 
-        # Start a new reposting task
+        # Start a new reposting task and ensure only ONE task runs
         reposting_tasks[message.channel.id] = asyncio.create_task(repost_pinned_message(message.channel))
 
 async def repost_pinned_message(channel):
     """Reposts the pinned message after a delay, ensuring only one reposting happens at a time"""
-    await asyncio.sleep(2)  # Wait 2 seconds before reposting the pinned message
-
     try:
-        if channel.id in pinned_messages:
-            pinned_msg = await channel.fetch_message(pinned_messages[channel.id])
-            new_pinned_msg = await channel.send(pinned_msg.content)
-            await pinned_msg.delete()
-            pinned_messages[channel.id] = new_pinned_msg.id
+        await asyncio.sleep(2)  # Wait 2 seconds before reposting the pinned message
+
+        # If the channel has no pinned message, exit early
+        if channel.id not in pinned_messages:
+            return
+
+        # Fetch the existing pinned message
+        pinned_msg = await channel.fetch_message(pinned_messages[channel.id])
+
+        # Send a new pinned message and delete the old one
+        new_pinned_msg = await channel.send(pinned_msg.content)
+        await pinned_msg.delete()
+
+        # Update the pinned message reference
+        pinned_messages[channel.id] = new_pinned_msg.id
+
+        # Remove the task from tracking after completion
+        del reposting_tasks[channel.id]
+
+    except asyncio.CancelledError:
+        # Task was cancelled (e.g., `!stop` was used), so exit cleanly
+        return
     except discord.NotFound:
-        pass  # Pinned message no longer exists
+        # Pinned message no longer exists
+        pass
 
 # Run the bot
 if __name__ == "__main__":
