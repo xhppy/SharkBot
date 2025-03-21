@@ -20,6 +20,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Dictionary to store pinned messages per channel
 pinned_messages = {}
+reposting_tasks = {}  # New dictionary to track ongoing reposting tasks
 
 @bot.event
 async def on_ready():
@@ -56,6 +57,11 @@ async def stop(ctx):
     if ctx.channel.id in pinned_messages:
         del pinned_messages[ctx.channel.id]  # Remove tracking for the channel
         await ctx.send("🛑 The bot will no longer repost the pinned message.", delete_after=3)
+
+        # Cancel the ongoing reposting task if there is one
+        if ctx.channel.id in reposting_tasks:
+            reposting_tasks[ctx.channel.id].cancel()
+            del reposting_tasks[ctx.channel.id]
     else:
         await ctx.send("❌ No pinned message is being tracked.", delete_after=3)
 
@@ -68,15 +74,25 @@ async def on_message(message):
     await bot.process_commands(message)  # Ensures commands work properly
 
     if message.channel.id in pinned_messages:
-        await asyncio.sleep(2)  # Wait 2 seconds before checking and reposting the pinned message
+        # If there's an existing task for this channel, cancel it
+        if message.channel.id in reposting_tasks:
+            reposting_tasks[message.channel.id].cancel()
 
-        try:
-            pinned_msg = await message.channel.fetch_message(pinned_messages[message.channel.id])
-            new_pinned_msg = await message.channel.send(pinned_msg.content)
+        # Start a new reposting task
+        reposting_tasks[message.channel.id] = asyncio.create_task(repost_pinned_message(message.channel))
+
+async def repost_pinned_message(channel):
+    """Reposts the pinned message after a delay, ensuring only one reposting happens at a time"""
+    await asyncio.sleep(2)  # Wait 2 seconds before reposting the pinned message
+
+    try:
+        if channel.id in pinned_messages:
+            pinned_msg = await channel.fetch_message(pinned_messages[channel.id])
+            new_pinned_msg = await channel.send(pinned_msg.content)
             await pinned_msg.delete()
-            pinned_messages[message.channel.id] = new_pinned_msg.id
-        except discord.NotFound:
-            pass  # Pinned message no longer exists
+            pinned_messages[channel.id] = new_pinned_msg.id
+    except discord.NotFound:
+        pass  # Pinned message no longer exists
 
 # Run the bot
 if __name__ == "__main__":
