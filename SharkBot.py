@@ -1,5 +1,6 @@
 import discord
 import os
+import asyncio
 from discord.ext import commands
 from dotenv import load_dotenv
 
@@ -60,13 +61,15 @@ async def stop(ctx):
 
 @bot.event
 async def on_message(message):
-    """Ensures the pinned message stays at the bottom"""
+    """Ensures the pinned message stays at the bottom with a 2-second delay before reposting"""
     if message.author == bot.user:
         return
 
     await bot.process_commands(message)  # Ensures commands work properly
 
     if message.channel.id in pinned_messages:
+        await asyncio.sleep(2)  # Wait 2 seconds before checking and reposting the pinned message
+
         try:
             pinned_msg = await message.channel.fetch_message(pinned_messages[message.channel.id])
             new_pinned_msg = await message.channel.send(pinned_msg.content)
